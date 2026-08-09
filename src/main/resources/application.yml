@@ -47,7 +47,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        # prometheus dropped - nothing in this deployment scrapes it, so it
+        # was pure unused attack surface (metrics endpoints reveal internal
+        # architecture/endpoint usage even when auth-gated, as this one was).
+        include: health,info
   endpoint:
     health:
       show-details: when-authorized
