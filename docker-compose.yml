@@ -1,0 +1,69 @@
+# Standalone compose for local dev of THIS service only. Nothing will ever
+# land in the ledger unless something publishes to disbursement.completed -
+# pair this with incentivepay-incentive-api pointed at the same Kafka
+# (override its KAFKA_BOOTSTRAP_SERVERS), or use incentivepay-platform for
+# the full stack wired together:
+# https://github.com/<your-org>/incentivepay-platform
+
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ledger_service
+      POSTGRES_USER: ledger_service
+      POSTGRES_PASSWORD: ledger_service
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledger_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: "8081"
+      KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  ledger-service:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_started
+      keycloak:
+        condition: service_started
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/ledger_service
+      DB_USER: ledger_service
+      DB_PASSWORD: ledger_service
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/incentivepay/protocol/openid-connect/certs
+    ports:
+      - "8082:8082"
